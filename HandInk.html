@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Hand-Ink</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      margin: 0;
+      background: #050301;
+      overflow: hidden;
+    }
+
+    video {
+      display: none;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      transform: scaleX(-1);
+      position: absolute;
+      z-index: 1;
+    }
+
+    #watermark {
+      position: absolute;
+      bottom: 10px;
+      left: 12px;
+      z-index: 10;
+      color: #F5D061;
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      opacity: 0.95;
+      text-shadow:
+        0 0 4px #F5D061,
+        0 0 10px rgba(245, 208, 97, 0.7);
+    }
+
+    #popup-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #000000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    #popup-overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    #popup-box {
+      background: #050301;
+      border: 1.5px solid #F5D061;
+      border-radius: 16px;
+      padding: 30px;
+      max-width: 380px;
+      width: 90%;
+      box-shadow: 0 0 25px rgba(245, 208, 97, 0.15);
+      text-align: center;
+      box-sizing: border-box;
+    }
+
+    #popup-title {
+      color: #F5D061;
+      font-size: 30px;
+      font-weight: 700;
+      margin-top: 0;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    #popup-title a {
+      color: #F5D061;
+      display: inline-flex;
+      align-items: center;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+      text-decoration: none;
+    }
+
+    #popup-title a:hover {
+      transform: scale(1.15);
+      opacity: 0.9;
+    }
+
+    #popup-title svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    #popup-instructions {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 20px 0;
+      font-size: 14.5px;
+      line-height: 1.7;
+      color: #E2E8F0;
+    }
+
+    #popup-instructions li {
+      margin-bottom: 8px;
+    }
+
+    #popup-instructions strong {
+      color: #FFFFFF;
+      font-weight: 800;
+    }
+
+    #popup-footer {
+      color: #CBD5E1;
+      font-size: 13.5px;
+      margin-bottom: 20px;
+    }
+
+    #btn-continue {
+      background: #F5D061;
+      color: #050301;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 20px;
+      font-size: 14.5px;
+      font-weight: bold;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+
+    #btn-continue:hover {
+      background: #f7da80;
+    }
+
+    #btn-continue:active {
+      transform: scale(0.98);
+    }
+
+    #color-palette {
+      position: absolute;
+      right: 24px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      background: rgba(10, 6, 2, 0.6);
+      padding: 16px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(245, 208, 97, 0.25);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+
+    #color-palette.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .color-box {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      cursor: pointer;
+      box-sizing: border-box;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .color-box:hover {
+      transform: scale(1.15);
+    }
+
+    .color-box.active {
+      transform: scale(1.1);
+      border: 2px solid #FFFFFF;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="popup-overlay">
+    <div id="popup-box">
+      <h1 id="popup-title">
+        Hand-Ink
+        <a href="https://github.com/ZamanZahid/Hand-Ink" target="_blank" rel="noopener noreferrer"
+          title="View Hand-Ink on GitHub">
+          <svg viewBox="0 0 16 16">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z">
+            </path>
+          </svg>
+        </a>
+      </h1>
+      <ul id="popup-instructions">
+        <li>- Allow camera access when prompted</li>
+        <li>- Hold the <strong>SHIFT</strong> key to start drawing</li>
+        <li>- Move your finger to draw in the air</li>
+        <li>- Press <strong>SPACEBAR</strong> to clear the screen</li>
+      </ul>
+      <div id="popup-footer">Made with ❤️ by Zaman Zahid</div>
+      <button id="btn-continue">Continue</button>
+    </div>
+  </div>
+
+  <div id="color-palette" class="hidden">
+    <div class="color-box active" data-color="#F5D061" style="background: #F5D061;" title="Golden Yellow"></div>
+    <div class="color-box" data-color="#FFFFFF" style="background: #FFFFFF;" title="White"></div>
+    <div class="color-box" data-color="#38BDF8" style="background: #38BDF8;" title="Light Blue"></div>
+    <div class="color-box" data-color="#F87171" style="background: #F87171;" title="Red"></div>
+    <div class="color-box" data-color="#4ADE80" style="background: #4ADE80;" title="Green"></div>
+  </div>
+
+  <video id="vid"></video>
+  <canvas id="c"></canvas>
+
+  <script>
+    var vid = document.getElementById('vid');
+    var c = document.getElementById('c');
+    var ctx = c.getContext('2d');
+    var arr = [];
+    var cur = [];
+    var shift = false;
+    var draw = false;
+    var sx = null;
+    var sy = null;
+    var activeColor = '#F5D061';
+
+    window.onkeydown = function (e) {
+      if (e.key == 'Shift') shift = true;
+      if (e.code == 'Space') arr = [];
+    }
+
+    window.onkeyup = function (e) {
+      if (e.key == 'Shift') shift = false;
+    }
+
+    function run(res) {
+      c.width = window.innerWidth;
+      c.height = window.innerHeight;
+      ctx.drawImage(res.image, 0, 0, c.width, c.height);
+      ctx.fillStyle = 'rgba(10, 6, 2, 0.85)';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      ctx.shadowBlur = 15;
+      ctx.lineWidth = 6;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      for (var i = 0; i < arr.length; i++) {
+        var stroke = arr[i];
+        var pts = stroke.points || stroke;
+        var col = stroke.color || '#F5D061';
+
+        ctx.shadowColor = col;
+        ctx.strokeStyle = col;
+
+        ctx.beginPath();
+        for (var j = 0; j < pts.length; j++) {
+          if (j == 0) ctx.moveTo(pts[j].x, pts[j].y);
+          else ctx.lineTo(pts[j].x, pts[j].y);
+        }
+        ctx.stroke();
+      }
+
+      if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+        var lm = res.multiHandLandmarks[0];
+        drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: 'rgba(245, 208, 97, 0.3)', lineWidth: 2 });
+        drawLandmarks(ctx, lm, { color: '#FFFFFF', lineWidth: 1.3, radius: 2.7 });
+
+        var ind = lm[8];
+        var rx = ind.x * c.width;
+        var ry = ind.y * c.height;
+
+        if (sx == null) {
+          sx = rx;
+          sy = ry;
+        } else {
+          sx += (rx - sx) * 0.45;
+          sy += (ry - sy) * 0.45;
+        }
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, 8, 0, 2 * Math.PI);
+        if (shift) {
+          ctx.fillStyle = '#FFFFFF';
+        } else {
+          ctx.fillStyle = activeColor + '66';
+        }
+        ctx.fill();
+
+        if (shift) {
+          if (!draw) {
+            draw = true;
+            cur = [];
+            arr.push({ points: cur, color: activeColor });
+          }
+          cur.push({ x: sx, y: sy });
+        } else {
+          draw = false;
+        }
+      } else {
+        draw = false;
+        sx = null;
+      }
+    }
+
+    var h = new Hands({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+      }
+    });
+
+    h.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    h.onResults(run);
+
+    var cam = new Camera(vid, {
+      onFrame: async () => { await h.send({ image: vid }); },
+      width: 1280,
+      height: 720
+    });
+
+    document.getElementById('btn-continue').onclick = function () {
+      document.getElementById('popup-overlay').classList.add('hidden');
+      document.getElementById('color-palette').classList.remove('hidden');
+      cam.start();
+    };
+
+    var colorBoxes = document.querySelectorAll('.color-box');
+    colorBoxes.forEach(function (box) {
+      box.onclick = function () {
+        colorBoxes.forEach(function (b) { b.classList.remove('active'); });
+        box.classList.add('active');
+        activeColor = box.getAttribute('data-color');
+      };
+    });
+  </script>
+</body>
+
+</html>
